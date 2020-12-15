@@ -1,0 +1,2 @@
+imuTest
+-DCATKIN_DEVEL_PREFIX=/home/ken/ubuROBOTS/develop/IMU_ws/devel -DCMAKE_INSTALL_PREFIX=/home/ken/ubuROBOTS/develop/IMU_ws/install -G Unix Makefiles
