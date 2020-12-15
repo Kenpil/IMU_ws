@@ -1,0 +1,141 @@
+#!/usr/bin/python -u
+# -*- coding: utf-8 -*-
+# mpuが使えるかを試す。測定結果を表示するだけでとくにROSに関係なし。
+# I2C接続で
+# https://asukiaaa.blogspot.com/2018/04/raspberry-pi-mpu9250.html
+# を参考に
+# VCC -> 左上ピン1
+# GND -> 左上5番ピン9
+# SCL -> 左上3番ピン5
+# SDA -> 左上2番ピン3
+# に接続
+
+import smbus
+import time
+from fractions import Fraction
+
+address = 0x68
+bus     = smbus.SMBus(1)
+t1 = 0
+t2 = 0
+durationtime = 0
+ax = 0
+ay = 0
+az = 0
+gx = 0
+gy = 0
+gz = 0
+mx = 0
+my = 0
+mz = 0
+PI = 3.1415
+mcnt = 0
+msum = 0.0
+msum2 = 0.0
+gyro_coefficient = float(Fraction(250 , 32768))
+
+def u2s(unsigneddata):
+    if unsigneddata & (0x01 << 15) : 
+        return -1 * ((unsigneddata ^ 0xffff) + 1)
+    return unsigneddata
+
+
+# ???????????
+bus.write_i2c_block_data(address, 0x6B, [0x80])
+time.sleep(0.2)     
+
+# PWR_MGMT_1????
+bus.write_i2c_block_data(address, 0x6B, [0x00])
+time.sleep(0.2)
+bus.write_i2c_block_data(address, 0x1B, [0x00])
+time.sleep(0.2)
+bus.write_i2c_block_data(address, 0x37, [0x02])
+time.sleep(0.2)
+bus.write_i2c_block_data(0x0C, 0x0A, [0x12])
+time.sleep(0.2)
+
+
+#a_offset
+a_os_sum_x = 0.0
+a_os_sum_y = 0.0
+a_os_sum_z = 0.0
+for a_os_cnt in range(1000):
+    adata = bus.read_i2c_block_data(address, 0x3B, 6)
+    a_os_sum_x = a_os_sum_x + (2.0 / float(0x8000)) * u2s(adata[0] << 8 | adata[1])
+    a_os_sum_y = a_os_sum_y + (2.0 / float(0x8000)) * u2s(adata[2] << 8 | adata[3])
+    a_os_sum_z = a_os_sum_z + (2.0 / float(0x8000)) * u2s(adata[4] << 8 | adata[5])
+    if  a_os_cnt == 999:
+        a_offset_x = float(a_os_sum_x / 1000)
+        a_offset_y = float(a_os_sum_y / 1000)
+        a_offset_z = float(a_os_sum_z / 1000)
+        #print " gyro_coefficient:%f" % gyro_coefficient + "  ",
+        print " a_os_cnt:%d" % a_os_cnt + " ",
+        print " a_offset_x:%f" % a_offset_x + "  ",
+        print " a_offset_y:%f" % a_offset_y + "  ",
+        print " a_offset_z:%f" % a_offset_z + "\n",
+        break
+
+
+#gyro_offset
+gy_os_sum_x = 0.0
+gy_os_sum_y = 0.0
+gy_os_sum_z = 0.0
+for gy_os_cnt in range(1000):
+    gdata = bus.read_i2c_block_data(address, 0x43, 6)
+    gy_os_sum_x = gy_os_sum_x + gyro_coefficient * u2s(gdata[0] << 8 | gdata[1])
+    gy_os_sum_y = gy_os_sum_y + gyro_coefficient * u2s(gdata[2] << 8 | gdata[3])
+    gy_os_sum_z = gy_os_sum_z + gyro_coefficient * u2s(gdata[4] << 8 | gdata[5])
+    if  gy_os_cnt == 999:
+        gyro_offset_x = float(gy_os_sum_x / 1000)
+        gyro_offset_y = float(gy_os_sum_y / 1000)
+        gyro_offset_z = float(gy_os_sum_z / 1000)
+        #print " gyro_coefficient:%f" % gyro_coefficient + "  ",
+        print " gy_os_cnt:%d" % gy_os_cnt + " ",
+        print " gyro_offset_x:%f" % gyro_offset_x + "  ",
+        print " gyro_offset_y:%f" % gyro_offset_y + "  ",
+        print " gyro_offset_z:%f" % gyro_offset_z + "\n",
+        break
+
+
+def get_agm():
+# ?????????
+    global ax, ay, az, gx, gy, gz, mx, my, mz, t1, t2, durationtime, mcnt, msum, msum2
+    agdata = bus.read_i2c_block_data(address, 0x3B ,14)
+    ax    = agdata[0] << 8 | agdata[1]
+    ay    = agdata[2] << 8 | agdata[3]
+    az    = agdata[4] << 8 | agdata[5]
+    ax    = (2.0 / float(0x8000)) * u2s(ax) - a_offset_x
+    ay    = (2.0 / float(0x8000)) * u2s(ay) - a_offset_y
+    az    = (2.0 / float(0x8000)) * u2s(az) - a_offset_z
+    #gdata = bus.read_i2c_block_data(address, 0x43, 6)
+    gx    = agdata[8] << 8 | agdata[9]
+    gy    = agdata[10] << 8 | agdata[11]
+    gz    = agdata[12] << 8 | agdata[13]
+    gx    = float((gyro_coefficient * u2s(gx) - gyro_offset_x) * PI / 180)
+    gy    = float((gyro_coefficient * u2s(gy) - gyro_offset_y) * PI / 180)
+    gz    = float((gyro_coefficient * u2s(gz) - gyro_offset_z) * PI /  180)
+
+    mdata = bus.read_i2c_block_data(0x0c, 0x03, 7)
+    mx    = mdata[1] << 8 | mdata[0]
+    my    = mdata[3] << 8 | mdata[2]
+    mz    = mdata[5] << 8 | mdata[4]
+    mx    = (float(Fraction(u2s(mx) , 32768)) * 4921 - 7.2) 
+    my    = (float(Fraction(u2s(my) , 32768)) * 4921 + 7.2)
+    mz    = (float(Fraction(u2s(mz) , 32768)) * 4921 + 22.5)
+    #msum += mx
+    #msum2 += mz
+    #mcnt += 1
+    #   if mcnt == 999:
+    #   msum = msum / 1000
+    #    msum2 = msum2 / 1000
+    #    print "msum = %f" % msum + "\n",
+    #    print "msum2 = %f" % msum2
+    #print "%+8.7f" % mx + "   ",
+    #print "%+8.7f" % my + "   ",
+    #print "%+8.7f" % mz + "\n",
+
+if __name__ == '__main__':
+    get_agm()
+    print " ax:%f," % ax + " ay:%f," %ay + " az:%f," % az + "  ",
+    print " gx:%f," % gx + " gy:%f," %gy + " gz:%f," % gz + "  ",
+    print " mx:%f," % mx + " my:%f," %my + " mz:%f," % mz + "\n"
